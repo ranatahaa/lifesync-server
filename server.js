@@ -1,133 +1,137 @@
-const express = require(‘express’);
-const { createCanvas } = require(’@napi-rs/canvas’);
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const { createCanvas } = require('@napi-rs/canvas');
 
 const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Read raw body so we can parse the file contents sent by the Shortcut
-app.use(express.raw({ type: ‘*/*’, limit: ‘10mb’ }));
+function getParam(req, key) {
+  return (req.query[key] !== undefined ? req.query[key] : (req.body && req.body[key] !== undefined ? req.body[key] : '')).toString().trim();
+}
 
-// ── Draw wallpaper ─────────────────────────────────────────────────────────
 function generateWallpaper(screenWidth, screenHeight, achievedDates) {
-const W = parseInt(screenWidth) || 390;
-const H = parseInt(screenHeight) || 844;
+  const W = parseInt(screenWidth) || 390;
+  const H = parseInt(screenHeight) || 844;
+  const canvas = createCanvas(W, H);
+  const ctx = canvas.getContext('2d');
 
-const canvas = createCanvas(W, H);
-const ctx = canvas.getContext(‘2d’);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, W, H);
 
-ctx.fillStyle = ‘#000000’;
-ctx.fillRect(0, 0, W, H);
+  const now = new Date();
+  const year = now.getFullYear();
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const scale = W / 390;
+  const startY = H * 0.36;
+  const startX = 22 * scale;
+  const cellW = (W - startX * 2) / 3;
+  const cellH = (H - startY - 20 * scale) / 4;
+  const dotR = 4.2 * scale;
+  const dotGap = 2.5 * scale;
+  const step = dotR * 2 + dotGap;
 
-const now        = new Date();
-const year       = now.getFullYear();
+  ctx.font = Math.round(11 * scale) + 'px sans-serif';
+  ctx.textBaseline = 'top';
 
-const MONTHS = [‘Jan’,‘Feb’,‘Mar’,‘Apr’,‘May’,‘Jun’,‘Jul’,‘Aug’,‘Sep’,‘Oct’,‘Nov’,‘Dec’];
+  for (var mi = 0; mi < 12; mi++) {
+    var col = mi % 3;
+    var row = Math.floor(mi / 3);
+    var ox = startX + col * cellW;
+    var oy = startY + row * cellH;
 
-const scale  = W / 390;
-const startY = H * 0.36;
-const startX = 22 * scale;
-const cellW  = (W - startX * 2) / 3;
-const cellH  = (H - startY - 20 * scale) / 4;
-const dotR   = 4.2 * scale;
-const step   = dotR * 2 + 2.5 * scale;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(MONTHS[mi], ox, oy);
 
-ctx.font = `${Math.round(11 * scale)}px sans-serif`;
-ctx.textBaseline = ‘top’;
+    var labelH = Math.round(13 * scale);
+    var gridStartX = ox;
+    var gridStartY = oy + labelH + 4 * scale;
+    var daysInMonth = new Date(year, mi + 1, 0).getDate();
+    var firstDay = new Date(year, mi, 1).getDay();
 
-for (let mi = 0; mi < 12; mi++) {
-const col = mi % 3;
-const row = Math.floor(mi / 3);
-const ox  = startX + col * cellW;
-const oy  = startY + row * cellH;
+    for (var d = 1; d <= daysInMonth; d++) {
+      var index = firstDay + d - 1;
+      var dc = index % 7;
+      var dr = Math.floor(index / 7);
+      var cx = gridStartX + dc * step + dotR;
+      var cy = gridStartY + dr * step + dotR;
+      var dateKey = year + '-' + String(mi + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      var isAchieved = achievedDates.has(dateKey);
 
-```
-ctx.fillStyle = '#ffffff';
-ctx.fillText(MONTHS[mi], ox, oy);
+      ctx.beginPath();
+      ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
+      ctx.fillStyle = isAchieved ? '#ffffff' : '#2e2e2e';
+      ctx.fill();
+    }
+  }
 
-const gridStartX = ox;
-const gridStartY = oy + Math.round(13 * scale) + 4 * scale;
+  return canvas.toBuffer('image/png');
+}
 
-const daysInMonth = new Date(year, mi + 1, 0).getDate();
-const firstDay    = new Date(year, mi, 1).getDay();
+var DATA_DIR = path.join(__dirname, 'data');
+var DATA_FILE = path.join(DATA_DIR, 'goal_records.txt');
 
-for (let d = 1; d <= daysInMonth; d++) {
-  const index = firstDay + d - 1;
-  const cx    = gridStartX + (index % 7) * step + dotR;
-  const cy    = gridStartY + Math.floor(index / 7) * step + dotR;
-
-  // Check if this date is in the achieved set (handle any format)
-  const isAchieved = [...achievedDates].some(entry => {
-    try {
-      const date = new Date(entry.trim());
-      if (!isNaN(date)) {
-        return date.getFullYear() === year &&
-               date.getMonth() === mi &&
-               date.getDate() === d;
-      }
-    } catch(e) {}
-    return false;
+function loadAchievedDates() {
+  var set = new Set();
+  if (!fs.existsSync(DATA_FILE)) return set;
+  fs.readFileSync(DATA_FILE, 'utf8').split('\n').forEach(function(line) {
+    var t = line.trim();
+    if (t) set.add(t);
   });
-
-  ctx.beginPath();
-  ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-  ctx.fillStyle = isAchieved ? '#ffffff' : '#2e2e2e';
-  ctx.fill();
-}
-```
-
+  return set;
 }
 
-return canvas.toBuffer(‘image/png’);
+function saveAchievedDate(dateStr) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  var set = loadAchievedDates();
+  if (!set.has(dateStr)) {
+    fs.appendFileSync(DATA_FILE, dateStr + '\n', 'utf8');
+  }
 }
 
-// ── Main endpoint ──────────────────────────────────────────────────────────
-app.all(’/shortcuts/genpic.php’, (req, res) => {
-try {
-// Get screen dimensions from headers (Shortcut sends them here)
-const screenWidth  = req.headers[‘screen-width’]  ||
-req.headers[‘screen-wi…’]  || ‘390’;
-const screenHeight = req.headers[‘screen-height’] ||
-req.headers[‘screen-hei…’] || ‘844’;
+app.all('/shortcuts/genpic.php', function(req, res) {
+  try {
+    var screenWidth = getParam(req, 'screen_width') || '390';
+    var screenHeight = getParam(req, 'screen_height') || '844';
+    var achieved = getParam(req, 'achieved');
+    var dateStr = getParam(req, 'date') || new Date().toISOString().split('T')[0];
 
-```
-// Parse the file body — this is the records file from the iPhone
-// It contains one date per line for each achieved day
-const achievedDates = new Set();
-if (req.body) {
-  const text = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body);
-  console.log('Body received:', text.substring(0, 300));
-  text.split('\n').forEach(line => {
-    const t = line.trim();
-    if (t) achievedDates.add(t);
-  });
-}
+    if (achieved && achieved.toLowerCase() !== 'no' && achieved !== '') {
+      saveAchievedDate(dateStr);
+    }
 
-console.log('Screen:', screenWidth, 'x', screenHeight);
-console.log('Achieved dates count:', achievedDates.size);
-console.log('Achieved dates:', [...achievedDates]);
+    var achievedDates = loadAchievedDates();
+    var imgBuffer = generateWallpaper(screenWidth, screenHeight, achievedDates);
+    var base64Img = imgBuffer.toString('base64');
+    var totalAchieved = achievedDates.size;
+    var now = new Date();
+    var dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+    var pct = dayOfYear > 0 ? Math.round((totalAchieved / dayOfYear) * 100) : 0;
 
-const imgBuffer = generateWallpaper(screenWidth, screenHeight, achievedDates);
-const base64Img = imgBuffer.toString('base64');
+    var responseText = 'status=success\nmessage=' + totalAchieved + ' days achieved (' + pct + '%). Keep it up!\nlink=https://lifesync-server-production.up.railway.app/stats\nlink_text=View my progress\nimage_base64=' + base64Img;
 
-const responseText = [
-  `status=success`,
-  `message=🎯 ${achievedDates.size} days achieved this year. Keep it up!`,
-  `link=https://lifesync-server-production.up.railway.app/stats`,
-  `link_text=View my progress`,
-  `image_base64=${base64Img}`,
-].join('\n');
-
-res.setHeader('Content-Type', 'text/plain');
-res.send(responseText);
-```
-
-} catch (err) {
-console.error(‘Error:’, err);
-res.setHeader(‘Content-Type’, ‘text/plain’);
-res.send(`status=error\nmessage=Server error: ${err.message}\nlink=\nlink_text=\nimage_base64=`);
-}
+    res.setHeader('Content-Type', 'text/plain');
+    res.send(responseText);
+  } catch (err) {
+    console.error(err);
+    res.setHeader('Content-Type', 'text/plain');
+    res.send('status=error\nmessage=Server error: ' + err.message + '\nlink=\nlink_text=\nimage_base64=');
+  }
 });
 
-app.get(’/’, (req, res) => res.send(‘LifeSync Goal Server is running ✓’));
+app.get('/stats', function(req, res) {
+  var dates = loadAchievedDates();
+  var list = Array.from(dates).sort();
+  var items = list.map(function(d) { return '<li>' + d + '</li>'; }).join('');
+  res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LifeSync Goals</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#000;color:#fff;font-family:-apple-system,Helvetica,Arial,sans-serif;padding:2rem 1.5rem;max-width:420px;margin:0 auto}h1{font-size:1.2rem;color:#888;margin-bottom:1.5rem;letter-spacing:.05em;text-transform:uppercase}.big{font-size:4rem;font-weight:700;line-height:1}.sub{color:#555;font-size:.9rem;margin-top:.4rem;margin-bottom:2rem}ul{list-style:none;padding:0}li{padding:.6rem 0;border-bottom:1px solid #111;color:#aaa;font-size:.9rem;display:flex;align-items:center;gap:.6rem}li::before{content:"";width:8px;height:8px;border-radius:50%;background:#fff;flex-shrink:0}</style></head><body><h1>LifeSync Goals</h1><div class="big">' + dates.size + '</div><div class="sub">days achieved this year</div><ul>' + items + '</ul></body></html>');
+});
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`LifeSync server running on port ${PORT}`));
+app.get('/', function(req, res) {
+  res.send('LifeSync Goal Server is running');
+});
+
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('LifeSync server running on port ' + PORT);
+});
