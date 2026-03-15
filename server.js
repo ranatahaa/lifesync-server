@@ -37,7 +37,7 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var step  = Math.min(stepW, stepH);
   var dotR  = step * 0.43;
   var monthW = 7 * step;
-  var gap = ((W - 44) * p - 3 * monthW) / 2;
+  var gap = (PW * 0.92 - 3 * monthW) / 2;
   var calLeft = (PW - (3 * monthW + 2 * gap)) / 2;
   ctx.textBaseline = 'top';
   var fontName = fs.existsSync(fontPath) ? 'AppFont' : 'sans-serif';
