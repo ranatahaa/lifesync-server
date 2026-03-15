@@ -33,18 +33,19 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var calH = calBottom - calTop;
   var rowH = calH / 4;
 
-  // Fix: make dots grid fit exactly within columns with no overflow
-  // Total width split into 3 equal columns with small gaps
-  var sidePad = W * 0.04 * p;
-  var gapBetween = W * 0.02 * p;
-  var totalColW = (PW - 2 * sidePad - 2 * gapBetween) / 3;
-
-  // Step size: fit exactly 7 dots in column width
-  var stepW = totalColW / 7;
+  // Calculate step size to fit 7 dots in each of 3 equal columns
+  // Use 92% of screen width, split into 3 columns
+  var usableW = PW * 0.92;
+  var colW = usableW / 3;
+  var stepW = colW / 7;
   var dotsH = rowH * 0.78;
   var stepH = dotsH / 6;
-  var step  = Math.min(stepW, stepH);
-  var dotR  = step * 0.42;
+  var step = Math.min(stepW, stepH);
+  var dotR = step * 0.42;
+
+  // Center: total grid width = 3 * 7 * step
+  var totalGridW = 3 * 7 * step;
+  var startX = (PW - totalGridW) / 2;
 
   var labelSize = Math.round(step * 1.0);
   var labelGap  = Math.round(step * 0.25);
@@ -55,7 +56,7 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   for (var mi = 0; mi < 12; mi++) {
     var col = mi % 3;
     var row = Math.floor(mi / 3);
-    var ox = sidePad + col * (totalColW + gapBetween);
+    var ox = startX + col * 7 * step;
     var oy = calTop + row * rowH;
 
     ctx.font = 'bold ' + labelSize + 'px ' + fontName;
@@ -110,28 +111,38 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     var screenWidth  = req.headers['screen-wi'] || req.headers['screen-width'] || '390';
     var screenHeight = req.headers['screen-hei'] || req.headers['screen-height'] || '844';
 
-    // Always use server's current date — don't trust the body date
-    var now = new Date();
-    var dateStr = now.getFullYear() + '-' +
-      String(now.getMonth() + 1).padStart(2, '0') + '-' +
-      String(now.getDate()).padStart(2, '0');
+    // Use date from URL param (sent by shortcut) — most reliable
+    var dateStr = req.query.date || '';
 
-    // Determine if achieved from URL param or body content
-    var achieved = req.query.achieved || '';
-
+    // Parse body to check if file was sent (means achieved)
     var bodyText = '';
     if (req.body) {
       if (typeof req.body === 'string') bodyText = req.body;
       else if (Buffer.isBuffer(req.body)) bodyText = req.body.toString('utf8');
     }
 
-    // If body has content (file was sent), it means "Yes, achieved"
+    var achieved = req.query.achieved || '';
+
+    // If body has content, it means "Yes achieved" — extract date from last line
     if (bodyText && bodyText.trim().length > 0) {
       achieved = 'yes';
+      var lines = bodyText.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
+      if (lines.length > 0) {
+        var lastLine = lines[lines.length - 1];
+        // Last line format: "2026-03-16 00:12:00 1" — extract just the date part
+        var dateMatch = lastLine.match(/^(\d{4}-\d{2}-\d{2})/);
+        if (dateMatch) dateStr = dateMatch[1];
+      }
+    }
+
+    // Final fallback: use server date
+    if (!dateStr) {
+      var now = new Date();
+      dateStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
     }
 
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(LAST_PARAMS_FILE, JSON.stringify({ screenWidth: screenWidth, screenHeight: screenHeight, achieved: achieved, date: dateStr, time: new Date().toISOString() }));
+    fs.writeFileSync(LAST_PARAMS_FILE, JSON.stringify({ screenWidth: screenWidth, screenHeight: screenHeight, achieved: achieved, date: dateStr, body: bodyText.substring(0, 200), time: new Date().toISOString() }));
 
     if (achieved === 'yes') {
       saveAchievedDate(dateStr);
@@ -141,7 +152,8 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     var imgBuffer     = generateWallpaper(screenWidth, screenHeight, achievedDates);
     var base64Img     = imgBuffer.toString('base64');
     var totalAchieved = achievedDates.size;
-    var dayOfYear     = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+    var now2          = new Date();
+    var dayOfYear     = Math.floor((now2 - new Date(now2.getFullYear(), 0, 0)) / 86400000);
     var pct           = dayOfYear > 0 ? Math.round((totalAchieved / dayOfYear) * 100) : 0;
     var responseText  = 'status=success\nmessage=' + totalAchieved + ' days achieved (' + pct + '%). Keep it up!\nlink=https://lifesync-server-production.up.railway.app/stats\nlink_text=View my progress\nimage_base64=' + base64Img;
     res.setHeader('Content-Type', 'text/plain');
