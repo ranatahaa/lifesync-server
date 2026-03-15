@@ -1,11 +1,17 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { createCanvas } = require('@napi-rs/canvas');
+const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Load font
+var fontPath = path.join(__dirname, 'DejaVuSans-Bold.ttf');
+if (fs.existsSync(fontPath)) {
+  GlobalFonts.registerFromPath(fontPath, 'AppFont');
+}
 
 function getParam(req, key) {
   var v = req.query[key];
@@ -17,71 +23,45 @@ function getParam(req, key) {
 function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var W = parseInt(screenWidth) || 390;
   var H = parseInt(screenHeight) || 844;
-
-  // iPhone screens are 3x pixel density
-  // So 390x844 points = 1170x2532 pixels
   var PW = W * 3;
   var PH = H * 3;
-
   var canvas = createCanvas(PW, PH);
   var ctx = canvas.getContext('2d');
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, PW, PH);
-
   var now = new Date();
   var year = now.getFullYear();
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  // Work in logical points, multiply by 3 for pixels
   var p = 3;
-
-  // Calendar starts below clock (about 36% down) and ends above widgets (86%)
   var calTop    = H * 0.36 * p;
   var calBottom = H * 0.86 * p;
-  var calLeft   = 22 * p;
-  var calRight  = (W - 22) * p;
-
-  var calW = calRight - calLeft;
   var calH = calBottom - calTop;
-
-  // 3 columns, 4 rows
-  var colW = calW / 3;
   var rowH = calH / 4;
-
-  // Label
   var labelSize = 11 * p;
   var labelGap  = 5 * p;
-
-  // Dots area per month
-  var dotsW = colW - 2 * p;
   var dotsH = rowH - labelSize - labelGap - 4 * p;
-
-  // Step = fit 7 cols and 6 rows
+  var dotsW = (W / 3 - 16) * p;
   var stepW = dotsW / 7;
   var stepH = dotsH / 6;
   var step  = Math.min(stepW, stepH);
   var dotR  = step * 0.43;
-
+  var monthW = 7 * step;
+  var gap = ((W - 44) * p - 3 * monthW) / 2;
+  var calLeft = (PW - (3 * monthW + 2 * gap)) / 2;
   ctx.textBaseline = 'top';
-
+  var fontName = fs.existsSync(fontPath) ? 'AppFont' : 'sans-serif';
   for (var mi = 0; mi < 12; mi++) {
     var col = mi % 3;
     var row = Math.floor(mi / 3);
-
-    var ox = calLeft + col * colW;
-    var oy = calTop  + row * rowH;
-
-    // Label
-    ctx.font = labelSize + 'px sans-serif';
+    var ox = calLeft + col * (monthW + gap);
+    var oy = calTop + row * rowH;
+    ctx.font = 'bold ' + labelSize + 'px ' + fontName;
     ctx.fillStyle = '#ffffff';
     ctx.fillText(MONTHS[mi], ox, oy);
-
     var gx = ox;
     var gy = oy + labelSize + labelGap;
-
     var daysInMonth = new Date(year, mi + 1, 0).getDate();
     var firstDay    = new Date(year, mi, 1).getDay();
-
     for (var d = 1; d <= daysInMonth; d++) {
       var idx = firstDay + d - 1;
       var dc  = idx % 7;
@@ -95,7 +75,6 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
       ctx.fill();
     }
   }
-
   return canvas.toBuffer('image/png');
 }
 
@@ -127,14 +106,11 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     var screenHeight = getParam(req, 'screen_height') || '844';
     var achieved     = getParam(req, 'achieved');
     var dateStr      = getParam(req, 'date') || new Date().toISOString().split('T')[0];
-
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(LAST_PARAMS_FILE, JSON.stringify({ screenWidth: screenWidth, screenHeight: screenHeight, achieved: achieved, date: dateStr, time: new Date().toISOString() }));
-
     if (achieved && achieved.toLowerCase() !== 'no' && achieved !== '') {
       saveAchievedDate(dateStr);
     }
-
     var achievedDates = loadAchievedDates();
     var imgBuffer     = generateWallpaper(screenWidth, screenHeight, achievedDates);
     var base64Img     = imgBuffer.toString('base64');
@@ -142,8 +118,7 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     var now           = new Date();
     var dayOfYear     = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
     var pct           = dayOfYear > 0 ? Math.round((totalAchieved / dayOfYear) * 100) : 0;
-
-    var responseText = 'status=success\nmessage=' + totalAchieved + ' days achieved (' + pct + '%). Keep it up!\nlink=https://lifesync-server-production.up.railway.app/stats\nlink_text=View my progress\nimage_base64=' + base64Img;
+    var responseText  = 'status=success\nmessage=' + totalAchieved + ' days achieved (' + pct + '%). Keep it up!\nlink=https://lifesync-server-production.up.railway.app/stats\nlink_text=View my progress\nimage_base64=' + base64Img;
     res.setHeader('Content-Type', 'text/plain');
     res.send(responseText);
   } catch (err) {
