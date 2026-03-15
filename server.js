@@ -7,7 +7,6 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Load font
 var fontPath = path.join(__dirname, 'DejaVuSans-Bold.ttf');
 if (fs.existsSync(fontPath)) {
   GlobalFonts.registerFromPath(fontPath, 'AppFont');
@@ -23,45 +22,70 @@ function getParam(req, key) {
 function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var W = parseInt(screenWidth) || 390;
   var H = parseInt(screenHeight) || 844;
+
+  // Pixel density: most iPhones are 3x, older ones (7 Plus) are 2.6x ~ use 3x always
   var PW = W * 3;
   var PH = H * 3;
+
   var canvas = createCanvas(PW, PH);
   var ctx = canvas.getContext('2d');
   ctx.fillStyle = '#000000';
   ctx.fillRect(0, 0, PW, PH);
+
   var now = new Date();
   var year = now.getFullYear();
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  // All layout in logical points (not pixels), then multiply by 3
   var p = 3;
+
+  // Calendar area: top 36% is clock, bottom 14% is widgets
   var calTop    = H * 0.36 * p;
   var calBottom = H * 0.86 * p;
+  var calLeft   = W * 0.04 * p;
+  var calRight  = W * 0.96 * p;
+
+  var calW = calRight - calLeft;
   var calH = calBottom - calTop;
+
+  // Divide into 3 cols x 4 rows
+  var colW = calW / 3;
   var rowH = calH / 4;
-  var labelSize = 11 * p;
-  var labelGap  = 5 * p;
-  var dotsH = rowH - labelSize - labelGap - 4 * p;
-  var dotsW = (W / 3 - 16) * p;
+
+  // Label size proportional to column width
+  var labelSize = Math.round(colW * 0.11);
+  var labelGap  = Math.round(rowH * 0.04);
+
+  // Dots area
+  var dotsW = colW - Math.round(colW * 0.04);
+  var dotsH = rowH - labelSize - labelGap - Math.round(rowH * 0.06);
+
+  // Fit 7 cols and 6 rows of dots
   var stepW = dotsW / 7;
   var stepH = dotsH / 6;
   var step  = Math.min(stepW, stepH);
-  var dotR  = step * 0.43;
-  var monthW = 7 * step;
-  var gap = ((W - 44) * p - 3 * monthW) / 2;
-  var calLeft = (PW - (3 * monthW + 2 * gap)) / 2;
-  ctx.textBaseline = 'top';
+  var dotR  = step * 0.42;
+
   var fontName = fs.existsSync(fontPath) ? 'AppFont' : 'sans-serif';
+  ctx.textBaseline = 'top';
+
   for (var mi = 0; mi < 12; mi++) {
     var col = mi % 3;
     var row = Math.floor(mi / 3);
-    var ox = calLeft + col * (monthW + gap);
-    var oy = calTop + row * rowH;
+
+    var ox = calLeft + col * colW;
+    var oy = calTop  + row * rowH;
+
     ctx.font = 'bold ' + labelSize + 'px ' + fontName;
     ctx.fillStyle = '#ffffff';
     ctx.fillText(MONTHS[mi], ox, oy);
+
     var gx = ox;
     var gy = oy + labelSize + labelGap;
+
     var daysInMonth = new Date(year, mi + 1, 0).getDate();
     var firstDay    = new Date(year, mi, 1).getDay();
+
     for (var d = 1; d <= daysInMonth; d++) {
       var idx = firstDay + d - 1;
       var dc  = idx % 7;
@@ -75,6 +99,7 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
       ctx.fill();
     }
   }
+
   return canvas.toBuffer('image/png');
 }
 
