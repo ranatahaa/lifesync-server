@@ -33,21 +33,27 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var calH = calBottom - calTop;
   var rowH = calH / 4;
 
-  // Use 90% of screen width for the calendar
-  var availW = W * 0.90 * p;
-  var colW = availW / 3;
+  // Calculate dot size first, then derive column width from it
+  // Target: dots fill 90% of screen width across 3 columns
+  var totalDotsW = W * 0.90 * p;
+  var colW = totalDotsW / 3;
 
-  // Center horizontally
-  var calLeft = (PW - availW) / 2;
-
-  var labelSize = Math.round(colW * 0.11);
-  var labelGap  = Math.round(rowH * 0.04);
-  var dotsW = colW * 0.96;
-  var dotsH = rowH - labelSize - labelGap - Math.round(rowH * 0.06);
-  var stepW = dotsW / 7;
+  // Dot sizing: fit 7 dots per row
+  var dotsH = rowH * 0.78;
+  var stepW = colW / 7;
   var stepH = dotsH / 6;
   var step  = Math.min(stepW, stepH);
   var dotR  = step * 0.42;
+
+  // Actual dots grid width per month
+  var dotsGridW = 7 * step;
+
+  // Center entire calendar on screen
+  var totalGridW = 3 * dotsGridW;
+  var sidePad = (PW - totalGridW) / 2;
+
+  var labelSize = Math.round(step * 1.1);
+  var labelGap  = Math.round(step * 0.3);
 
   var fontName = fs.existsSync(fontPath) ? 'AppFont' : 'sans-serif';
   ctx.textBaseline = 'top';
@@ -55,15 +61,20 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   for (var mi = 0; mi < 12; mi++) {
     var col = mi % 3;
     var row = Math.floor(mi / 3);
-    var ox = calLeft + col * colW;
-    var oy = calTop  + row * rowH;
+
+    // Each month grid starts at sidePad + col * dotsGridW
+    var ox = sidePad + col * dotsGridW;
+    var oy = calTop + row * rowH;
+
     ctx.font = 'bold ' + labelSize + 'px ' + fontName;
     ctx.fillStyle = '#ffffff';
     ctx.fillText(MONTHS[mi], ox, oy);
+
     var gx = ox;
     var gy = oy + labelSize + labelGap;
     var daysInMonth = new Date(year, mi + 1, 0).getDate();
     var firstDay    = new Date(year, mi, 1).getDay();
+
     for (var d = 1; d <= daysInMonth; d++) {
       var idx = firstDay + d - 1;
       var dc  = idx % 7;
@@ -108,13 +119,11 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     var screenHeight = req.headers['screen-hei'] || req.headers['screen-height'] || '844';
     var achieved     = req.headers['achieved'] || '';
     var dateStr      = req.headers['date'] || new Date().toISOString().split('T')[0];
-
     var bodyText = '';
     if (req.body) {
       if (typeof req.body === 'string') bodyText = req.body;
       else if (Buffer.isBuffer(req.body)) bodyText = req.body.toString('utf8');
     }
-
     if (bodyText) {
       var lines = bodyText.split('\n').map(function(l) { return l.trim(); }).filter(Boolean);
       if (lines.length > 0) {
@@ -125,14 +134,11 @@ app.all('/shortcuts/genpic.php', function(req, res) {
         }
       }
     }
-
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(LAST_PARAMS_FILE, JSON.stringify({ screenWidth: screenWidth, screenHeight: screenHeight, achieved: achieved, date: dateStr, time: new Date().toISOString() }));
-
     if (achieved && achieved.toLowerCase() !== 'no' && achieved !== '') {
       saveAchievedDate(dateStr);
     }
-
     var achievedDates = loadAchievedDates();
     var imgBuffer     = generateWallpaper(screenWidth, screenHeight, achievedDates);
     var base64Img     = imgBuffer.toString('base64');
