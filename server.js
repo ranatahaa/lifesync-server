@@ -28,23 +28,27 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var year = now.getFullYear();
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var s = SCALE;
-  var dotR = 5.8 * s;
-  var dotGap = 3.2 * s;
-  var step = dotR * 2 + dotGap;
-  var monthGridW = 7 * step;
-  var labelSize = Math.round(13 * s);
-  var labelGap = 6 * s;
-  var monthGridH = 6 * step;
-  var blockH = labelSize + labelGap + monthGridH;
-  var padX = (CW - 3 * monthGridW) / 4;
   var startY = CH * 0.36;
-  var rowGap = (CH - startY - 4 * blockH) / 5;
+  var endY = CH * 0.86;
+  var availH = endY - startY;
+  var padX = 0.055 * CW;
+  var availW = CW - 2 * padX;
+  var colW = availW / 3;
+  var rowH = availH / 4;
+  var labelSize = Math.round(11 * s);
+  var labelGap = 4 * s;
+  var dotsAreaH = rowH - labelSize - labelGap;
+  var dotsAreaW = colW - 6 * s;
+  var stepH = dotsAreaH / 6;
+  var stepW = dotsAreaW / 7;
+  var step = Math.min(stepH, stepW);
+  var dotR = step * 0.44;
   ctx.textBaseline = 'top';
   for (var mi = 0; mi < 12; mi++) {
     var col = mi % 3;
     var row = Math.floor(mi / 3);
-    var ox = padX + col * (monthGridW + padX);
-    var oy = startY + row * (blockH + rowGap);
+    var ox = padX + col * colW;
+    var oy = startY + row * rowH;
     ctx.font = 'bold ' + labelSize + 'px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(MONTHS[mi], ox, oy);
@@ -64,7 +68,7 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
       var isAchieved = achievedDates.has(dateKey);
       ctx.beginPath();
       ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = isAchieved ? '#ffffff' : '#3a3a3a';
+      ctx.fillStyle = isAchieved ? '#ffffff' : '#484848';
       ctx.fill();
     }
   }
@@ -73,6 +77,7 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
 
 var DATA_DIR = path.join(__dirname, 'data');
 var DATA_FILE = path.join(DATA_DIR, 'goal_records.txt');
+var LAST_PARAMS_FILE = path.join(DATA_DIR, 'last_params.json');
 
 function loadAchievedDates() {
   var set = new Set();
@@ -98,6 +103,10 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     var screenHeight = getParam(req, 'screen_height') || '844';
     var achieved = getParam(req, 'achieved');
     var dateStr = getParam(req, 'date') || new Date().toISOString().split('T')[0];
+
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(LAST_PARAMS_FILE, JSON.stringify({ screenWidth: screenWidth, screenHeight: screenHeight, achieved: achieved, date: dateStr, time: new Date().toISOString() }));
+
     if (achieved && achieved.toLowerCase() !== 'no' && achieved !== '') {
       saveAchievedDate(dateStr);
     }
@@ -116,6 +125,15 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     res.setHeader('Content-Type', 'text/plain');
     res.send('status=error\nmessage=Server error: ' + err.message + '\nlink=\nlink_text=\nimage_base64=');
   }
+});
+
+app.get('/debug', function(req, res) {
+  var data = 'No requests yet';
+  if (fs.existsSync(LAST_PARAMS_FILE)) {
+    data = fs.readFileSync(LAST_PARAMS_FILE, 'utf8');
+  }
+  res.setHeader('Content-Type', 'application/json');
+  res.send(data);
 });
 
 app.get('/stats', function(req, res) {
