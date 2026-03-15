@@ -97,23 +97,19 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     var screenWidth  = req.headers['screen-wi'] || req.headers['screen-width'] || '390';
     var screenHeight = req.headers['screen-hei'] || req.headers['screen-height'] || '844';
 
-    // Parse body — format: "2026-03-16 00:12:00 1\n2026-03-16 00:13:00 1\n..."
+    // Date comes from the 'date' header — sent by shortcut as yyyy-MM-dd
+    var dateStr = req.headers['date'] || '';
+
+    // Parse body — if body has content, goal was achieved
     var body = req.body ? (Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body)) : '';
-    var achieved = false;
-    var dateStr = '';
+    var achieved = body.trim().length > 0;
 
-    if (body.trim().length > 0) {
-      achieved = true;
-      // Get the LAST line and extract date from it
-      var lines = body.trim().split('\n').filter(function(l) { return l.trim(); });
-      var lastLine = lines[lines.length - 1].trim();
-      var m = lastLine.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (m) dateStr = m[1];
-    }
-
-    if (!dateStr) {
+    // Fallback date if header not set
+    if (!dateStr || !dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
       var n = new Date();
       dateStr = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
+    } else {
+      dateStr = dateStr.substring(0, 10);
     }
 
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
