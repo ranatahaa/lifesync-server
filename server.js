@@ -31,13 +31,13 @@ function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var labelSize = 11 * p;
   var labelGap  = 5 * p;
   var dotsH = rowH - labelSize - labelGap - 4 * p;
-  var dotsW = (W / 3 - 16) * p;
+  var dotsW = (W * 0.30) * p;
   var stepW = dotsW / 7;
   var stepH = dotsH / 6;
   var step  = Math.min(stepW, stepH);
   var dotR  = step * 0.43;
   var monthW = 7 * step;
-  var gap = (PW * 0.92 - 3 * monthW) / 2;
+  var gap = (PW * 0.04);
   var calLeft = (PW - (3 * monthW + 2 * gap)) / 2;
   ctx.textBaseline = 'top';
   var fontName = fs.existsSync(fontPath) ? 'AppFont' : 'sans-serif';
