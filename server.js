@@ -17,61 +17,85 @@ function getParam(req, key) {
 function generateWallpaper(screenWidth, screenHeight, achievedDates) {
   var W = parseInt(screenWidth) || 390;
   var H = parseInt(screenHeight) || 844;
-  var SCALE = 3;
-  var CW = W * SCALE;
-  var CH = H * SCALE;
-  var canvas = createCanvas(CW, CH);
+
+  // iPhone screens are 3x pixel density
+  // So 390x844 points = 1170x2532 pixels
+  var PW = W * 3;
+  var PH = H * 3;
+
+  var canvas = createCanvas(PW, PH);
   var ctx = canvas.getContext('2d');
   ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, CW, CH);
+  ctx.fillRect(0, 0, PW, PH);
+
   var now = new Date();
   var year = now.getFullYear();
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var s = SCALE;
-  var startY = CH * 0.36;
-  var endY = CH * 0.86;
-  var availH = endY - startY;
-  var padX = 0.055 * CW;
-  var availW = CW - 2 * padX;
-  var colW = availW / 3;
-  var rowH = availH / 4;
-  var labelSize = Math.round(11 * s);
-  var labelGap = 4 * s;
-  var dotsAreaH = rowH - labelSize - labelGap;
-  var dotsAreaW = colW - 6 * s;
-  var stepH = dotsAreaH / 6;
-  var stepW = dotsAreaW / 7;
-  var step = Math.min(stepH, stepW);
-  var dotR = step * 0.44;
+
+  // Work in logical points, multiply by 3 for pixels
+  var p = 3;
+
+  // Calendar starts below clock (about 36% down) and ends above widgets (86%)
+  var calTop    = H * 0.36 * p;
+  var calBottom = H * 0.86 * p;
+  var calLeft   = 22 * p;
+  var calRight  = (W - 22) * p;
+
+  var calW = calRight - calLeft;
+  var calH = calBottom - calTop;
+
+  // 3 columns, 4 rows
+  var colW = calW / 3;
+  var rowH = calH / 4;
+
+  // Label
+  var labelSize = 11 * p;
+  var labelGap  = 5 * p;
+
+  // Dots area per month
+  var dotsW = colW - 2 * p;
+  var dotsH = rowH - labelSize - labelGap - 4 * p;
+
+  // Step = fit 7 cols and 6 rows
+  var stepW = dotsW / 7;
+  var stepH = dotsH / 6;
+  var step  = Math.min(stepW, stepH);
+  var dotR  = step * 0.43;
+
   ctx.textBaseline = 'top';
+
   for (var mi = 0; mi < 12; mi++) {
     var col = mi % 3;
     var row = Math.floor(mi / 3);
-    var ox = padX + col * colW;
-    var oy = startY + row * rowH;
-    ctx.font = 'bold ' + labelSize + 'px sans-serif';
+
+    var ox = calLeft + col * colW;
+    var oy = calTop  + row * rowH;
+
+    // Label
+    ctx.font = labelSize + 'px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(MONTHS[mi], ox, oy);
-    var gridStartX = ox;
-    var gridStartY = oy + labelSize + labelGap;
+
+    var gx = ox;
+    var gy = oy + labelSize + labelGap;
+
     var daysInMonth = new Date(year, mi + 1, 0).getDate();
-    var firstDay = new Date(year, mi, 1).getDay();
+    var firstDay    = new Date(year, mi, 1).getDay();
+
     for (var d = 1; d <= daysInMonth; d++) {
-      var index = firstDay + d - 1;
-      var dc = index % 7;
-      var dr = Math.floor(index / 7);
-      var cx = gridStartX + dc * step + dotR;
-      var cy = gridStartY + dr * step + dotR;
-      var mm = String(mi + 1).padStart(2, '0');
-      var dd = String(d).padStart(2, '0');
-      var dateKey = year + '-' + mm + '-' + dd;
-      var isAchieved = achievedDates.has(dateKey);
+      var idx = firstDay + d - 1;
+      var dc  = idx % 7;
+      var dr  = Math.floor(idx / 7);
+      var cx  = gx + dc * step + dotR;
+      var cy  = gy + dr * step + dotR;
+      var key = year + '-' + String(mi+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
       ctx.beginPath();
       ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = isAchieved ? '#ffffff' : '#484848';
+      ctx.fillStyle = achievedDates.has(key) ? '#ffffff' : '#484848';
       ctx.fill();
     }
   }
+
   return canvas.toBuffer('image/png');
 }
 
@@ -99,10 +123,10 @@ function saveAchievedDate(dateStr) {
 
 app.all('/shortcuts/genpic.php', function(req, res) {
   try {
-    var screenWidth = getParam(req, 'screen_width') || '390';
+    var screenWidth  = getParam(req, 'screen_width')  || '390';
     var screenHeight = getParam(req, 'screen_height') || '844';
-    var achieved = getParam(req, 'achieved');
-    var dateStr = getParam(req, 'date') || new Date().toISOString().split('T')[0];
+    var achieved     = getParam(req, 'achieved');
+    var dateStr      = getParam(req, 'date') || new Date().toISOString().split('T')[0];
 
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(LAST_PARAMS_FILE, JSON.stringify({ screenWidth: screenWidth, screenHeight: screenHeight, achieved: achieved, date: dateStr, time: new Date().toISOString() }));
@@ -110,13 +134,15 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     if (achieved && achieved.toLowerCase() !== 'no' && achieved !== '') {
       saveAchievedDate(dateStr);
     }
+
     var achievedDates = loadAchievedDates();
-    var imgBuffer = generateWallpaper(screenWidth, screenHeight, achievedDates);
-    var base64Img = imgBuffer.toString('base64');
+    var imgBuffer     = generateWallpaper(screenWidth, screenHeight, achievedDates);
+    var base64Img     = imgBuffer.toString('base64');
     var totalAchieved = achievedDates.size;
-    var now = new Date();
-    var dayOfYear = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
-    var pct = dayOfYear > 0 ? Math.round((totalAchieved / dayOfYear) * 100) : 0;
+    var now           = new Date();
+    var dayOfYear     = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
+    var pct           = dayOfYear > 0 ? Math.round((totalAchieved / dayOfYear) * 100) : 0;
+
     var responseText = 'status=success\nmessage=' + totalAchieved + ' days achieved (' + pct + '%). Keep it up!\nlink=https://lifesync-server-production.up.railway.app/stats\nlink_text=View my progress\nimage_base64=' + base64Img;
     res.setHeader('Content-Type', 'text/plain');
     res.send(responseText);
@@ -129,16 +155,14 @@ app.all('/shortcuts/genpic.php', function(req, res) {
 
 app.get('/debug', function(req, res) {
   var data = 'No requests yet';
-  if (fs.existsSync(LAST_PARAMS_FILE)) {
-    data = fs.readFileSync(LAST_PARAMS_FILE, 'utf8');
-  }
+  if (fs.existsSync(LAST_PARAMS_FILE)) data = fs.readFileSync(LAST_PARAMS_FILE, 'utf8');
   res.setHeader('Content-Type', 'application/json');
   res.send(data);
 });
 
 app.get('/stats', function(req, res) {
   var dates = loadAchievedDates();
-  var list = Array.from(dates).sort();
+  var list  = Array.from(dates).sort();
   var items = list.map(function(d) { return '<li>' + d + '</li>'; }).join('');
   res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LifeSync Goals</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#000;color:#fff;font-family:-apple-system,Helvetica,Arial,sans-serif;padding:2rem 1.5rem;max-width:420px;margin:0 auto}h1{font-size:1.2rem;color:#888;margin-bottom:1.5rem}.big{font-size:4rem;font-weight:700}.sub{color:#555;font-size:.9rem;margin-bottom:2rem}ul{list-style:none}li{padding:.6rem 0;border-bottom:1px solid #111;color:#aaa}</style></head><body><h1>LifeSync Goals</h1><div class="big">' + dates.size + '</div><div class="sub">days achieved this year</div><ul>' + items + '</ul></body></html>');
 });
