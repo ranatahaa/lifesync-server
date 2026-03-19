@@ -9,12 +9,17 @@ app.use(express.raw({ type: '*/*', limit: '50mb' }));
 var fontPath = path.join(__dirname, 'DejaVuSans-Bold.ttf');
 if (fs.existsSync(fontPath)) GlobalFonts.registerFromPath(fontPath, 'AppFont');
 
-function generateWallpaper(W, H, achievedDates) {
+function generateWallpaper(W, H, achievedDates, theme) {
+  var isLight = theme === 'light';
+  var bgColor         = isLight ? '#ffffff' : '#000000';
+  var labelColor      = isLight ? '#000000' : '#ffffff';
+  var achievedColor   = isLight ? '#000000' : '#ffffff';
+  var unachievedColor = isLight ? '#cccccc' : '#484848';
   var PW = W * 3;
   var PH = H * 3;
   var canvas = createCanvas(PW, PH);
   var ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#000000';
+  ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, PW, PH);
   var year = new Date().getFullYear();
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -42,7 +47,7 @@ function generateWallpaper(W, H, achievedDates) {
     var ox = calLeft + col * (monthW + gap);
     var oy = calTop + row * rowH;
     ctx.font = 'bold ' + labelSize + 'px ' + fontName;
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = labelColor;
     ctx.fillText(MONTHS[mi], ox, oy);
     var gx = ox;
     var gy = oy + labelSize + labelGap;
@@ -55,7 +60,7 @@ function generateWallpaper(W, H, achievedDates) {
       var key = year + '-' + String(mi+1).padStart(2,'0') + '-' + String(d).padStart(2,'0');
       ctx.beginPath();
       ctx.arc(cx, cy, dotR, 0, Math.PI * 2);
-      ctx.fillStyle = achievedDates.has(key) ? '#ffffff' : '#484848';
+      ctx.fillStyle = achievedDates.has(key) ? achievedColor : unachievedColor;
       ctx.fill();
     }
   }
@@ -89,7 +94,8 @@ app.all('/shortcuts/genpic.php', function(req, res) {
       achievedDates.add(dateStr);
     }
 
-    var img   = generateWallpaper(W, H, achievedDates);
+    var theme = (req.query.theme || 'dark').toString().trim();
+    var img   = generateWallpaper(W, H, achievedDates, theme);
     var b64   = img.toString('base64');
     var total = achievedDates.size;
     var now   = new Date();
