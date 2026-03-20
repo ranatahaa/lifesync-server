@@ -18,17 +18,22 @@ if (fs.existsSync(fontPath)) GlobalFonts.registerFromPath(fontPath, 'AppFont');
 var DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// Generate a device ID from headers (screen size + iOS version = unique enough)
+// Get device ID: prefer user-id header, fallback to fingerprint
 function getDeviceId(req) {
+  // Priority 1: unique user-id header (UUID stored on each user's phone)
+  var userId = (req.headers['user-id'] || '').trim();
+  if (userId.length >= 8) {
+    return 'u_' + userId.replace(/[^a-zA-Z0-9\-]/g, '').substring(0, 40);
+  }
+  // Priority 2: fallback fingerprint (less reliable)
   var w = req.headers['screen-wi'] || req.headers['screen-width'] || '0';
   var h = req.headers['screen-hei'] || req.headers['screen-height'] || '0';
   var ios = req.headers['ios-version'] || '';
   var ua = req.headers['user-agent'] || '';
   var raw = w + ':' + h + ':' + ios + ':' + ua;
-  return crypto.createHash('md5').update(raw).digest('hex').substring(0, 12);
+  return 'f_' + crypto.createHash('md5').update(raw).digest('hex').substring(0, 12);
 }
 
-// Load dates for a device from server storage
 function loadDeviceDates(deviceId) {
   var filePath = path.join(DATA_DIR, 'device_' + deviceId + '.txt');
   if (!fs.existsSync(filePath)) return new Set();
@@ -41,14 +46,12 @@ function loadDeviceDates(deviceId) {
   return dates;
 }
 
-// Save a date for a device
 function saveDeviceDate(deviceId, dateStr) {
   var filePath = path.join(DATA_DIR, 'device_' + deviceId + '.txt');
   var existing = '';
   if (fs.existsSync(filePath)) {
     existing = fs.readFileSync(filePath, 'utf8');
   }
-  // Check if date already exists
   if (existing.indexOf(dateStr) === -1) {
     fs.appendFileSync(filePath, dateStr + '\n');
   }
@@ -115,12 +118,10 @@ function generateWallpaper(W, H, achievedDates, theme) {
 function getTodayDate(header) {
   var now = new Date();
   if (header && header.match(/^\d{4}-\d{2}-\d{2}$/)) return header;
-  // Default: UTC+5 (Pakistan)
   var pk = new Date(now.getTime() + 5 * 3600000);
   return pk.getUTCFullYear() + '-' + String(pk.getUTCMonth()+1).padStart(2,'0') + '-' + String(pk.getUTCDate()).padStart(2,'0');
 }
 
-// Extract body text from any format (still try, as bonus)
 function extractBodyText(req) {
   if (req.file && req.file.buffer) return req.file.buffer.toString('utf8');
   if (req.files && Array.isArray(req.files) && req.files.length > 0) {
@@ -144,7 +145,6 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
     var W = parseInt(req.headers['screen-wi'] || req.headers['screen-width'] || '390');
     var H = parseInt(req.headers['screen-hei'] || req.headers['screen-height'] || '844');
 
-    // Get device ID and date
     var deviceId = getDeviceId(req);
     var localDateHeader = (req.headers['local-date'] || '').trim();
     var rawDateHeader = (req.headers['date'] || '').trim();
@@ -157,12 +157,10 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
       dateStr = getTodayDate(null);
     }
 
-    // Try to get dates from body (if Shortcuts sends it)
     var body = extractBodyText(req);
     var achievedDates = new Set();
 
     if (body.trim().length > 0) {
-      // Body has data — parse it and also sync to server storage
       body.trim().split('\n').forEach(function(line) {
         var m = line.trim().match(/^(\d{4}-\d{2}-\d{2})/);
         if (m) {
@@ -172,17 +170,11 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
       });
     }
 
-    // Always save today's date to server storage
     saveDeviceDate(deviceId, dateStr);
-
-    // Load ALL dates from server storage (includes today + all history)
     var serverDates = loadDeviceDates(deviceId);
     serverDates.forEach(function(d) { achievedDates.add(d); });
-
-    // Always include today
     achievedDates.add(dateStr);
 
-    // Debug info
     fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
       W: W, H: H, date: dateStr, deviceId: deviceId,
       contentType: req.headers['content-type'] || 'none',
