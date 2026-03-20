@@ -82,7 +82,16 @@ app.all('/shortcuts/genpic.php', function(req, res) {
 
 
     // Body contains the user's local records file
-    var body = req.body ? (Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body)) : '';
+    var body = '';
+    if (req.body) {
+      if (Buffer.isBuffer(req.body)) {
+        body = req.body.toString('utf8');
+      } else if (typeof req.body === 'string') {
+        body = req.body;
+      } else if (typeof req.body === 'object') {
+        body = Object.keys(req.body).join('\n');
+      }
+    }
 
     // Save debug info
     var DATA_DIR = path.join(__dirname, 'data');
