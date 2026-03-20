@@ -79,18 +79,23 @@ app.all('/shortcuts/genpic.php', function(req, res) {
       dateStr = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
     }
 
+
+
     // Body contains the user's local records file
-    // Format: "2026-03-14 16:40:52 1\n2026-03-15 10:00:00 1\n..."
     var body = req.body ? (Buffer.isBuffer(req.body) ? req.body.toString('utf8') : String(req.body)) : '';
 
-    // Parse ALL dates from body — each line has "YYYY-MM-DD ..." 
+    // Save debug info
+    var DATA_DIR = path.join(__dirname, 'data');
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({ W: W, H: H, date: dateStr, bodyPreview: body.substring(0, 300), time: new Date().toISOString() }));
+
+    // Parse ALL dates from body
     var achievedDates = new Set();
     if (body.trim().length > 0) {
       body.trim().split('\n').forEach(function(line) {
         var m = line.trim().match(/^(\d{4}-\d{2}-\d{2})/);
         if (m) achievedDates.add(m[1]);
       });
-      // Also add today's date since body was sent (means achieved today)
       achievedDates.add(dateStr);
     }
 
@@ -109,6 +114,12 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     res.setHeader('Content-Type', 'text/plain');
     res.send('status=error\nmessage=' + e.message + '\nlink=\nlink_text=\nimage_base64=');
   }
+});
+
+app.get('/debug', function(req, res) {
+  var f = path.join(__dirname, 'data', 'debug.json');
+  res.setHeader('Content-Type', 'application/json');
+  res.send(fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '{}');
 });
 
 app.get('/stats', function(req, res) {
