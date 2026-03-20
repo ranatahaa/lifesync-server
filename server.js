@@ -1,10 +1,14 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
 const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 
 const app = express();
-app.use(express.raw({ type: '*/*', limit: '50mb' }));
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+// Parse text and url-encoded bodies too
+app.use(express.json({ limit: '50mb' }));
 app.use(express.text({ type: 'text/*', limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -69,106 +73,98 @@ function generateWallpaper(W, H, achievedDates, theme) {
   return canvas.toBuffer('image/png');
 }
 
-// Helper: get today's date string in the user's timezone (default: Asia/Karachi UTC+5)
-function getTodayDate(tzOffsetHeader) {
+// Helper: get today's date in Pakistan time (UTC+5)
+function getTodayDate(header) {
   var now = new Date();
-
-  // If a custom header provides the user's local date directly (YYYY-MM-DD), use it
-  if (tzOffsetHeader && tzOffsetHeader.match(/^\d{4}-\d{2}-\d{2}$/)) {
-    return tzOffsetHeader;
+  if (header && header.match(/^\d{4}-\d{2}-\d{2}$/)) return header;
+  if (header && header.match(/^-?\d+$/)) {
+    var local = new Date(now.getTime() + parseInt(header) * 60000);
+    return local.getUTCFullYear() + '-' + String(local.getUTCMonth()+1).padStart(2,'0') + '-' + String(local.getUTCDate()).padStart(2,'0');
   }
-
-  // If a numeric UTC offset in minutes is provided (e.g. "-300" for UTC+5)
-  // Shortcuts can send this as the difference: localTime - UTC in minutes
-  if (tzOffsetHeader && tzOffsetHeader.match(/^-?\d+$/)) {
-    var offsetMin = parseInt(tzOffsetHeader);
-    var local = new Date(now.getTime() + offsetMin * 60000);
-    return local.getUTCFullYear() + '-' +
-      String(local.getUTCMonth() + 1).padStart(2, '0') + '-' +
-      String(local.getUTCDate()).padStart(2, '0');
-  }
-
-  // Fallback: use UTC+5 (Pakistan Standard Time) since that's where you are
-  var pkTime = new Date(now.getTime() + 5 * 3600000);
-  return pkTime.getUTCFullYear() + '-' +
-    String(pkTime.getUTCMonth() + 1).padStart(2, '0') + '-' +
-    String(pkTime.getUTCDate()).padStart(2, '0');
+  var pk = new Date(now.getTime() + 5 * 3600000);
+  return pk.getUTCFullYear() + '-' + String(pk.getUTCMonth()+1).padStart(2,'0') + '-' + String(pk.getUTCDate()).padStart(2,'0');
 }
 
-app.all('/shortcuts/genpic.php', function(req, res) {
+// Extract body text from ANY source
+function extractBodyText(req) {
+  // 1. Check multer file upload (multipart/form-data with file)
+  if (req.file && req.file.buffer) {
+    return req.file.buffer.toString('utf8');
+  }
+  // 2. Check multer multiple files
+  if (req.files) {
+    if (Array.isArray(req.files) && req.files.length > 0) {
+      return req.files.map(function(f) { return f.buffer.toString('utf8'); }).join('\n');
+    }
+    // files as object (field-keyed)
+    var allFiles = [];
+    Object.keys(req.files).forEach(function(key) {
+      req.files[key].forEach(function(f) { allFiles.push(f.buffer.toString('utf8')); });
+    });
+    if (allFiles.length > 0) return allFiles.join('\n');
+  }
+  // 3. Check form fields from multer
+  if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+    if (req.body.records) return String(req.body.records);
+    var keys = Object.keys(req.body);
+    for (var i = 0; i < keys.length; i++) {
+      var val = String(req.body[keys[i]]);
+      if (val.match(/\d{4}-\d{2}-\d{2}/)) return val;
+    }
+    var allKeys = keys.join('\n');
+    if (allKeys.match(/\d{4}-\d{2}-\d{2}/)) return allKeys;
+  }
+  // 4. Buffer
+  if (Buffer.isBuffer(req.body)) return req.body.toString('utf8');
+  // 5. String
+  if (typeof req.body === 'string') return req.body;
+  return '';
+}
+
+// Handle ALL methods and content types
+app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
   try {
     var W = parseInt(req.headers['screen-wi'] || req.headers['screen-width'] || '390');
     var H = parseInt(req.headers['screen-hei'] || req.headers['screen-height'] || '844');
 
-    // ---- FIX 1: Robust date reading ----
-    // Try multiple headers: 'local-date' (custom, best), 'tz-offset', then 'date'
+    // Date handling
     var localDateHeader = (req.headers['local-date'] || '').trim();
-    var tzOffsetHeader  = (req.headers['tz-offset'] || '').trim();
     var rawDateHeader   = (req.headers['date'] || '').trim();
-
     var dateStr = '';
-
-    // Priority 1: Custom 'local-date' header with YYYY-MM-DD
     if (localDateHeader.match(/^\d{4}-\d{2}-\d{2}$/)) {
       dateStr = localDateHeader;
-    }
-    // Priority 2: Use tz-offset to compute local date
-    else if (tzOffsetHeader) {
-      dateStr = getTodayDate(tzOffsetHeader);
-    }
-    // Priority 3: Try parsing the raw 'date' header (could be YYYY-MM-DD or HTTP date)
-    else if (rawDateHeader.match(/^\d{4}-\d{2}-\d{2}/)) {
+    } else if (rawDateHeader.match(/^\d{4}-\d{2}-\d{2}/)) {
       dateStr = rawDateHeader.substring(0, 10);
-    }
-    // Priority 4: Fallback to server time adjusted to PKT (UTC+5)
-    else {
+    } else {
       dateStr = getTodayDate(null);
     }
 
-    // Body contains the user's local records file
-    var body = '';
-    if (req.body) {
-      if (Buffer.isBuffer(req.body)) {
-        body = req.body.toString('utf8');
-      } else if (typeof req.body === 'string') {
-        body = req.body;
-      } else if (typeof req.body === 'object') {
-        var keys = Object.keys(req.body);
-        if (keys.length > 0) {
-          body = keys.join('\n');
-          var vals = keys.map(function(k) { return req.body[k]; }).join('\n');
-          if (vals.match(/\d{4}-\d{2}-\d{2}/)) body = vals;
-        }
-      }
-    }
+    // Extract body
+    var body = extractBodyText(req);
 
-    // Save debug info
+    // Debug info
     var DATA_DIR = path.join(__dirname, 'data');
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
-      W: W,
-      H: H,
-      date: dateStr,
-      localDateHeader: localDateHeader,
-      tzOffsetHeader: tzOffsetHeader,
-      rawDateHeader: rawDateHeader,
+      W: W, H: H, date: dateStr,
+      contentType: req.headers['content-type'] || 'none',
+      hasFile: !!(req.file),
+      filesCount: req.files ? (Array.isArray(req.files) ? req.files.length : Object.keys(req.files).length) : 0,
+      bodyType: typeof req.body,
+      bodyKeys: (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? Object.keys(req.body) : [],
       bodyLength: body.length,
       bodyPreview: body.substring(0, 500),
       time: new Date().toISOString()
     }));
 
-    // ---- FIX 2: Parse dates from body, ALWAYS add today ----
+    // Parse dates
     var achievedDates = new Set();
-
-    // Parse all existing dates from the body
     if (body.trim().length > 0) {
       body.trim().split('\n').forEach(function(line) {
         var m = line.trim().match(/^(\d{4}-\d{2}-\d{2})/);
         if (m) achievedDates.add(m[1]);
       });
     }
-
-    // ALWAYS add today's date (the goal was achieved if they're calling this endpoint)
     achievedDates.add(dateStr);
 
     var theme = (req.query.theme || 'dark').toString().trim();
