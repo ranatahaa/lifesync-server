@@ -5,6 +5,8 @@ const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 
 const app = express();
 app.use(express.raw({ type: '*/*', limit: '50mb' }));
+app.use(express.text({ type: 'text/*', limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 var fontPath = path.join(__dirname, 'DejaVuSans-Bold.ttf');
 if (fs.existsSync(fontPath)) GlobalFonts.registerFromPath(fontPath, 'AppFont');
@@ -89,7 +91,15 @@ app.all('/shortcuts/genpic.php', function(req, res) {
       } else if (typeof req.body === 'string') {
         body = req.body;
       } else if (typeof req.body === 'object') {
-        body = Object.keys(req.body).join('\n');
+        // URL-encoded: keys are the actual content
+        var keys = Object.keys(req.body);
+        if (keys.length > 0) {
+          // The file content is sent as the key when content-type is text/plain
+          body = keys.join('\n');
+          // Also check values
+          var vals = keys.map(function(k) { return req.body[k]; }).join('\n');
+          if (vals.match(/\d{4}-\d{2}-\d{2}/)) body = vals;
+        }
       }
     }
 
