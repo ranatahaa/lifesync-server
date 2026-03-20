@@ -69,19 +69,61 @@ function generateWallpaper(W, H, achievedDates, theme) {
   return canvas.toBuffer('image/png');
 }
 
+// Helper: get today's date string in the user's timezone (default: Asia/Karachi UTC+5)
+function getTodayDate(tzOffsetHeader) {
+  var now = new Date();
+
+  // If a custom header provides the user's local date directly (YYYY-MM-DD), use it
+  if (tzOffsetHeader && tzOffsetHeader.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    return tzOffsetHeader;
+  }
+
+  // If a numeric UTC offset in minutes is provided (e.g. "-300" for UTC+5)
+  // Shortcuts can send this as the difference: localTime - UTC in minutes
+  if (tzOffsetHeader && tzOffsetHeader.match(/^-?\d+$/)) {
+    var offsetMin = parseInt(tzOffsetHeader);
+    var local = new Date(now.getTime() + offsetMin * 60000);
+    return local.getUTCFullYear() + '-' +
+      String(local.getUTCMonth() + 1).padStart(2, '0') + '-' +
+      String(local.getUTCDate()).padStart(2, '0');
+  }
+
+  // Fallback: use UTC+5 (Pakistan Standard Time) since that's where you are
+  var pkTime = new Date(now.getTime() + 5 * 3600000);
+  return pkTime.getUTCFullYear() + '-' +
+    String(pkTime.getUTCMonth() + 1).padStart(2, '0') + '-' +
+    String(pkTime.getUTCDate()).padStart(2, '0');
+}
+
 app.all('/shortcuts/genpic.php', function(req, res) {
   try {
     var W = parseInt(req.headers['screen-wi'] || req.headers['screen-width'] || '390');
     var H = parseInt(req.headers['screen-hei'] || req.headers['screen-height'] || '844');
 
-    // Date from header
-    var dateStr = (req.headers['date'] || '').substring(0, 10);
-    if (!dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
-      var n = new Date();
-      dateStr = n.getFullYear() + '-' + String(n.getMonth()+1).padStart(2,'0') + '-' + String(n.getDate()).padStart(2,'0');
+    // ---- FIX 1: Robust date reading ----
+    // Try multiple headers: 'local-date' (custom, best), 'tz-offset', then 'date'
+    var localDateHeader = (req.headers['local-date'] || '').trim();
+    var tzOffsetHeader  = (req.headers['tz-offset'] || '').trim();
+    var rawDateHeader   = (req.headers['date'] || '').trim();
+
+    var dateStr = '';
+
+    // Priority 1: Custom 'local-date' header with YYYY-MM-DD
+    if (localDateHeader.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      dateStr = localDateHeader;
     }
-
-
+    // Priority 2: Use tz-offset to compute local date
+    else if (tzOffsetHeader) {
+      dateStr = getTodayDate(tzOffsetHeader);
+    }
+    // Priority 3: Try parsing the raw 'date' header (could be YYYY-MM-DD or HTTP date)
+    else if (rawDateHeader.match(/^\d{4}-\d{2}-\d{2}/)) {
+      dateStr = rawDateHeader.substring(0, 10);
+    }
+    // Priority 4: Fallback to server time adjusted to PKT (UTC+5)
+    else {
+      dateStr = getTodayDate(null);
+    }
 
     // Body contains the user's local records file
     var body = '';
@@ -91,12 +133,9 @@ app.all('/shortcuts/genpic.php', function(req, res) {
       } else if (typeof req.body === 'string') {
         body = req.body;
       } else if (typeof req.body === 'object') {
-        // URL-encoded: keys are the actual content
         var keys = Object.keys(req.body);
         if (keys.length > 0) {
-          // The file content is sent as the key when content-type is text/plain
           body = keys.join('\n');
-          // Also check values
           var vals = keys.map(function(k) { return req.body[k]; }).join('\n');
           if (vals.match(/\d{4}-\d{2}-\d{2}/)) body = vals;
         }
@@ -106,17 +145,31 @@ app.all('/shortcuts/genpic.php', function(req, res) {
     // Save debug info
     var DATA_DIR = path.join(__dirname, 'data');
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({ W: W, H: H, date: dateStr, bodyPreview: body.substring(0, 300), time: new Date().toISOString() }));
+    fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
+      W: W,
+      H: H,
+      date: dateStr,
+      localDateHeader: localDateHeader,
+      tzOffsetHeader: tzOffsetHeader,
+      rawDateHeader: rawDateHeader,
+      bodyLength: body.length,
+      bodyPreview: body.substring(0, 500),
+      time: new Date().toISOString()
+    }));
 
-    // Parse ALL dates from body
+    // ---- FIX 2: Parse dates from body, ALWAYS add today ----
     var achievedDates = new Set();
+
+    // Parse all existing dates from the body
     if (body.trim().length > 0) {
       body.trim().split('\n').forEach(function(line) {
         var m = line.trim().match(/^(\d{4}-\d{2}-\d{2})/);
         if (m) achievedDates.add(m[1]);
       });
-      achievedDates.add(dateStr);
     }
+
+    // ALWAYS add today's date (the goal was achieved if they're calling this endpoint)
+    achievedDates.add(dateStr);
 
     var theme = (req.query.theme || 'dark').toString().trim();
     var img   = generateWallpaper(W, H, achievedDates, theme);
