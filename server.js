@@ -1,19 +1,58 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const multer = require('multer');
 const { createCanvas, GlobalFonts } = require('@napi-rs/canvas');
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-// Parse text and url-encoded bodies too
 app.use(express.json({ limit: '50mb' }));
 app.use(express.text({ type: 'text/*', limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 var fontPath = path.join(__dirname, 'DejaVuSans-Bold.ttf');
 if (fs.existsSync(fontPath)) GlobalFonts.registerFromPath(fontPath, 'AppFont');
+
+var DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Generate a device ID from headers (screen size + iOS version = unique enough)
+function getDeviceId(req) {
+  var w = req.headers['screen-wi'] || req.headers['screen-width'] || '0';
+  var h = req.headers['screen-hei'] || req.headers['screen-height'] || '0';
+  var ios = req.headers['ios-version'] || '';
+  var ua = req.headers['user-agent'] || '';
+  var raw = w + ':' + h + ':' + ios + ':' + ua;
+  return crypto.createHash('md5').update(raw).digest('hex').substring(0, 12);
+}
+
+// Load dates for a device from server storage
+function loadDeviceDates(deviceId) {
+  var filePath = path.join(DATA_DIR, 'device_' + deviceId + '.txt');
+  if (!fs.existsSync(filePath)) return new Set();
+  var content = fs.readFileSync(filePath, 'utf8');
+  var dates = new Set();
+  content.trim().split('\n').forEach(function(line) {
+    var m = line.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) dates.add(m[1]);
+  });
+  return dates;
+}
+
+// Save a date for a device
+function saveDeviceDate(deviceId, dateStr) {
+  var filePath = path.join(DATA_DIR, 'device_' + deviceId + '.txt');
+  var existing = '';
+  if (fs.existsSync(filePath)) {
+    existing = fs.readFileSync(filePath, 'utf8');
+  }
+  // Check if date already exists
+  if (existing.indexOf(dateStr) === -1) {
+    fs.appendFileSync(filePath, dateStr + '\n');
+  }
+}
 
 function generateWallpaper(W, H, achievedDates, theme) {
   var isLight = theme === 'light';
@@ -73,37 +112,20 @@ function generateWallpaper(W, H, achievedDates, theme) {
   return canvas.toBuffer('image/png');
 }
 
-// Helper: get today's date in Pakistan time (UTC+5)
 function getTodayDate(header) {
   var now = new Date();
   if (header && header.match(/^\d{4}-\d{2}-\d{2}$/)) return header;
-  if (header && header.match(/^-?\d+$/)) {
-    var local = new Date(now.getTime() + parseInt(header) * 60000);
-    return local.getUTCFullYear() + '-' + String(local.getUTCMonth()+1).padStart(2,'0') + '-' + String(local.getUTCDate()).padStart(2,'0');
-  }
+  // Default: UTC+5 (Pakistan)
   var pk = new Date(now.getTime() + 5 * 3600000);
   return pk.getUTCFullYear() + '-' + String(pk.getUTCMonth()+1).padStart(2,'0') + '-' + String(pk.getUTCDate()).padStart(2,'0');
 }
 
-// Extract body text from ANY source
+// Extract body text from any format (still try, as bonus)
 function extractBodyText(req) {
-  // 1. Check multer file upload (multipart/form-data with file)
-  if (req.file && req.file.buffer) {
-    return req.file.buffer.toString('utf8');
+  if (req.file && req.file.buffer) return req.file.buffer.toString('utf8');
+  if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+    return req.files.map(function(f) { return f.buffer.toString('utf8'); }).join('\n');
   }
-  // 2. Check multer multiple files
-  if (req.files) {
-    if (Array.isArray(req.files) && req.files.length > 0) {
-      return req.files.map(function(f) { return f.buffer.toString('utf8'); }).join('\n');
-    }
-    // files as object (field-keyed)
-    var allFiles = [];
-    Object.keys(req.files).forEach(function(key) {
-      req.files[key].forEach(function(f) { allFiles.push(f.buffer.toString('utf8')); });
-    });
-    if (allFiles.length > 0) return allFiles.join('\n');
-  }
-  // 3. Check form fields from multer
   if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
     if (req.body.records) return String(req.body.records);
     var keys = Object.keys(req.body);
@@ -111,25 +133,21 @@ function extractBodyText(req) {
       var val = String(req.body[keys[i]]);
       if (val.match(/\d{4}-\d{2}-\d{2}/)) return val;
     }
-    var allKeys = keys.join('\n');
-    if (allKeys.match(/\d{4}-\d{2}-\d{2}/)) return allKeys;
   }
-  // 4. Buffer
   if (Buffer.isBuffer(req.body)) return req.body.toString('utf8');
-  // 5. String
   if (typeof req.body === 'string') return req.body;
   return '';
 }
 
-// Handle ALL methods and content types
 app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
   try {
     var W = parseInt(req.headers['screen-wi'] || req.headers['screen-width'] || '390');
     var H = parseInt(req.headers['screen-hei'] || req.headers['screen-height'] || '844');
 
-    // Date handling
+    // Get device ID and date
+    var deviceId = getDeviceId(req);
     var localDateHeader = (req.headers['local-date'] || '').trim();
-    var rawDateHeader   = (req.headers['date'] || '').trim();
+    var rawDateHeader = (req.headers['date'] || '').trim();
     var dateStr = '';
     if (localDateHeader.match(/^\d{4}-\d{2}-\d{2}$/)) {
       dateStr = localDateHeader;
@@ -139,33 +157,42 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
       dateStr = getTodayDate(null);
     }
 
-    // Extract body
+    // Try to get dates from body (if Shortcuts sends it)
     var body = extractBodyText(req);
-
-    // Debug info
-    var DATA_DIR = path.join(__dirname, 'data');
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
-      W: W, H: H, date: dateStr,
-      contentType: req.headers['content-type'] || 'none',
-      hasFile: !!(req.file),
-      filesCount: req.files ? (Array.isArray(req.files) ? req.files.length : Object.keys(req.files).length) : 0,
-      bodyType: typeof req.body,
-      bodyKeys: (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? Object.keys(req.body) : [],
-      bodyLength: body.length,
-      bodyPreview: body.substring(0, 500),
-      time: new Date().toISOString()
-    }));
-
-    // Parse dates
     var achievedDates = new Set();
+
     if (body.trim().length > 0) {
+      // Body has data — parse it and also sync to server storage
       body.trim().split('\n').forEach(function(line) {
         var m = line.trim().match(/^(\d{4}-\d{2}-\d{2})/);
-        if (m) achievedDates.add(m[1]);
+        if (m) {
+          achievedDates.add(m[1]);
+          saveDeviceDate(deviceId, m[1]);
+        }
       });
     }
+
+    // Always save today's date to server storage
+    saveDeviceDate(deviceId, dateStr);
+
+    // Load ALL dates from server storage (includes today + all history)
+    var serverDates = loadDeviceDates(deviceId);
+    serverDates.forEach(function(d) { achievedDates.add(d); });
+
+    // Always include today
     achievedDates.add(dateStr);
+
+    // Debug info
+    fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
+      W: W, H: H, date: dateStr, deviceId: deviceId,
+      contentType: req.headers['content-type'] || 'none',
+      bodyLength: body.length,
+      bodyPreview: body.substring(0, 300),
+      serverDatesCount: serverDates.size,
+      totalDates: achievedDates.size,
+      allDates: Array.from(achievedDates).sort(),
+      time: new Date().toISOString()
+    }));
 
     var theme = (req.query.theme || 'dark').toString().trim();
     var img   = generateWallpaper(W, H, achievedDates, theme);
@@ -185,7 +212,7 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
 });
 
 app.get('/debug', function(req, res) {
-  var f = path.join(__dirname, 'data', 'debug.json');
+  var f = path.join(DATA_DIR, 'debug.json');
   res.setHeader('Content-Type', 'application/json');
   res.send(fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '{}');
 });
