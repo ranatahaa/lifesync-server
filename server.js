@@ -18,17 +18,22 @@ if (fs.existsSync(fontPath)) GlobalFonts.registerFromPath(fontPath, 'AppFont');
 var DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// Get device ID: prefer user-id header, fallback to fingerprint
+// Get device ID: combine user-id (device name hash) with screen size + iOS version
 function getDeviceId(req) {
-  // Priority 1: unique user-id header (UUID stored on each user's phone)
   var userId = (req.headers['user-id'] || '').trim();
-  if (userId.length >= 8) {
-    return 'u_' + userId.replace(/[^a-zA-Z0-9\-]/g, '').substring(0, 40);
-  }
-  // Priority 2: fallback fingerprint (less reliable)
   var w = req.headers['screen-wi'] || req.headers['screen-width'] || '0';
   var h = req.headers['screen-hei'] || req.headers['screen-height'] || '0';
   var ios = req.headers['ios-version'] || '';
+
+  if (userId.length >= 8) {
+    // Combine the device name hash with screen size and iOS version
+    // This means even if two people have the same device name,
+    // they'd also need the same screen size AND iOS version to collide
+    var combined = userId + ':' + w + ':' + h + ':' + ios;
+    return 'u_' + crypto.createHash('md5').update(combined).digest('hex');
+  }
+
+  // Fallback fingerprint
   var ua = req.headers['user-agent'] || '';
   var raw = w + ':' + h + ':' + ios + ':' + ua;
   return 'f_' + crypto.createHash('md5').update(raw).digest('hex').substring(0, 12);
@@ -177,6 +182,7 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
 
     fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
       W: W, H: H, date: dateStr, deviceId: deviceId,
+      userIdHeader: req.headers['user-id'] || 'none',
       contentType: req.headers['content-type'] || 'none',
       bodyLength: body.length,
       bodyPreview: body.substring(0, 300),
