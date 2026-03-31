@@ -57,17 +57,6 @@ function saveDeviceDate(deviceId, dateStr) {
   }
 }
 
-// Detect device type from aspect ratio
-function getDeviceType(W, H) {
-  var ratio = H / W;
-  // iPhone: ratio ~2.16 (19.5:9) to ~1.78 (16:9)
-  // iPad: ratio ~1.33 (4:3) to ~1.43
-  // Mac/Monitor: ratio ~0.56 (16:9) to ~0.625 (16:10)
-  if (ratio < 1.0) return 'mac';       // landscape / Mac / monitor
-  if (ratio < 1.6) return 'ipad';      // iPad
-  return 'iphone';                      // iPhone
-}
-
 function generateWallpaper(W, H, achievedDates, theme) {
   var isLight = theme === 'light';
   var bgColor         = isLight ? '#ffffff' : '#000000';
@@ -80,58 +69,29 @@ function generateWallpaper(W, H, achievedDates, theme) {
   var ctx = canvas.getContext('2d');
   ctx.fillStyle = bgColor;
   ctx.fillRect(0, 0, PW, PH);
-
   var year = new Date().getFullYear();
   var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   var p = 3;
-
-  var deviceType = getDeviceType(W, H);
-
-  // Layout settings based on device type
-  var cols, rows, calTop, calBottom;
-
-  if (deviceType === 'iphone') {
-    // iPhone: 3 columns x 4 rows, centered vertically
-    cols = 3;
-    rows = 4;
-    calTop = H * 0.36 * p;
-    calBottom = H * 0.86 * p;
-  } else if (deviceType === 'ipad') {
-    // iPad: 4 columns x 3 rows, more spread out
-    cols = 4;
-    rows = 3;
-    calTop = H * 0.25 * p;
-    calBottom = H * 0.85 * p;
-  } else {
-    // Mac/Monitor: 6 columns x 2 rows, wide layout
-    cols = 6;
-    rows = 2;
-    calTop = H * 0.15 * p;
-    calBottom = H * 0.85 * p;
-  }
-
+  var calTop    = H * 0.36 * p;
+  var calBottom = H * 0.86 * p;
   var calH = calBottom - calTop;
-  var rowH = calH / rows;
+  var rowH = calH / 4;
   var labelSize = 11 * p;
   var labelGap  = 5 * p;
   var dotsH = rowH - labelSize - labelGap - 4 * p;
-
-  // Calculate dot size based on available space per month
-  var monthAreaW = (PW * 0.85) / cols;
-  var stepW = monthAreaW / 7;
+  var dotsW = (W * 0.30) * p;
+  var stepW = dotsW / 7;
   var stepH = dotsH / 6;
   var step  = Math.min(stepW, stepH);
   var dotR  = step * 0.43;
   var monthW = 7 * step;
-  var gap = (PW - (cols * monthW)) / (cols + 1);
-  var calLeft = gap;
-
+  var gap = PW * 0.04;
+  var calLeft = (PW - (3 * monthW + 2 * gap)) / 2;
   var fontName = fs.existsSync(fontPath) ? 'AppFont' : 'sans-serif';
   ctx.textBaseline = 'top';
-
   for (var mi = 0; mi < 12; mi++) {
-    var col = mi % cols;
-    var row = Math.floor(mi / cols);
+    var col = mi % 3;
+    var row = Math.floor(mi / 3);
     var ox = calLeft + col * (monthW + gap);
     var oy = calTop + row * rowH;
     ctx.font = 'bold ' + labelSize + 'px ' + fontName;
@@ -215,11 +175,8 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
     serverDates.forEach(function(d) { achievedDates.add(d); });
     achievedDates.add(dateStr);
 
-    var deviceType = getDeviceType(W, H);
-
     fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
       W: W, H: H, date: dateStr, deviceId: deviceId,
-      deviceType: deviceType,
       userIdHeader: req.headers['user-id'] || 'none',
       contentType: req.headers['content-type'] || 'none',
       bodyLength: body.length,
