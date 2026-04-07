@@ -57,6 +57,64 @@ function saveDeviceDate(deviceId, dateStr) {
   }
 }
 
+// Calculate streak stats from a set of date strings
+function calcStats(achievedDates) {
+  var now = new Date();
+  var year = now.getFullYear();
+  var doy = Math.floor((now - new Date(year, 0, 0)) / 86400000);
+
+  var sorted = Array.from(achievedDates).sort();
+  var total = sorted.length;
+  var pct = doy > 0 ? Math.round(total / doy * 100) : 0;
+
+  // Current streak (counting backwards from today)
+  var streak = 0;
+  var checkDate = new Date(now);
+  // Start from today
+  for (var i = 0; i < 400; i++) {
+    var key = checkDate.getFullYear() + '-' + String(checkDate.getMonth() + 1).padStart(2, '0') + '-' + String(checkDate.getDate()).padStart(2, '0');
+    if (achievedDates.has(key)) {
+      streak++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    } else if (i === 0) {
+      // Today not yet marked — check if yesterday starts a streak
+      checkDate.setDate(checkDate.getDate() - 1);
+      continue;
+    } else {
+      break;
+    }
+  }
+
+  // Best streak
+  var best = 0;
+  var current = 0;
+  for (var s = 0; s < sorted.length; s++) {
+    if (s === 0) {
+      current = 1;
+    } else {
+      var prev = new Date(sorted[s - 1]);
+      var curr = new Date(sorted[s]);
+      var diff = Math.round((curr - prev) / 86400000);
+      if (diff === 1) {
+        current++;
+      } else {
+        current = 1;
+      }
+    }
+    if (current > best) best = current;
+  }
+
+  // This month's days
+  var thisMonth = now.getMonth() + 1;
+  var monthDays = 0;
+  sorted.forEach(function(d) {
+    var parts = d.split('-');
+    if (parseInt(parts[0]) === year && parseInt(parts[1]) === thisMonth) monthDays++;
+  });
+
+  return { total: total, pct: pct, streak: streak, best: best, monthDays: monthDays, year: year };
+}
+
 function generateWallpaper(W, H, achievedDates, theme) {
   var isLight = theme === 'light';
   var bgColor         = isLight ? '#ffffff' : '#000000';
@@ -190,13 +248,12 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
     var theme = (req.query.theme || 'dark').toString().trim();
     var img   = generateWallpaper(W, H, achievedDates, theme);
     var b64   = img.toString('base64');
-    var total = achievedDates.size;
-    var now   = new Date();
-    var doy   = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 86400000);
-    var pct   = doy > 0 ? Math.round(total / doy * 100) : 0;
+
+    var stats = calcStats(achievedDates);
+    var statsLink = 'https://lifesync-server-production.up.railway.app/stats?days=' + stats.total + '&streak=' + stats.streak + '&best=' + stats.best + '&pct=' + stats.pct + '&month=' + stats.monthDays + '&year=' + stats.year;
 
     res.setHeader('Content-Type', 'text/plain');
-    res.send('status=success\nmessage=' + total + ' days achieved (' + pct + '%). Keep it up!\nlink=https://lifesync-server-production.up.railway.app/stats\nlink_text=View my progress\nimage_base64=' + b64);
+    res.send('status=success\nmessage=' + stats.total + ' days achieved (' + stats.pct + '%). Keep it up!\nlink=' + statsLink + '\nlink_text=View my stats\nimage_base64=' + b64);
   } catch (e) {
     console.error(e);
     res.setHeader('Content-Type', 'text/plain');
@@ -211,7 +268,379 @@ app.get('/debug', function(req, res) {
 });
 
 app.get('/stats', function(req, res) {
-  res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><title>LifeSync</title></head><body style="background:#000;color:#fff;font-family:-apple-system,sans-serif;padding:2rem;text-align:center"><h1>LifeSync Goals</h1><p>Your progress is stored privately on your iPhone.</p></body></html>');
+  var days = parseInt(req.query.days) || 0;
+  var streak = parseInt(req.query.streak) || 0;
+  var best = parseInt(req.query.best) || 0;
+  var pct = parseInt(req.query.pct) || 0;
+  var month = parseInt(req.query.month) || 0;
+  var year = parseInt(req.query.year) || new Date().getFullYear();
+
+  var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var currentMonth = monthNames[new Date().getMonth()];
+
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LifeSync — Your Stats</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: #050505;
+    color: #f0f0f0;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container {
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 48px 24px 64px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+
+  .logo {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #5a5a5a;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .logo-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #f0f0f0;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .header h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+
+  .header p {
+    color: #5a5a5a;
+    font-size: 0.9rem;
+  }
+
+  /* Hero stat */
+  .hero-stat {
+    text-align: center;
+    padding: 36px 24px;
+    background: #0c0c0c;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 20px;
+    margin-bottom: 16px;
+  }
+
+  .hero-number {
+    font-size: 4.5rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    color: #ffffff;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hero-label {
+    font-size: 0.82rem;
+    color: #5a5a5a;
+    margin-top: 8px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .hero-sub {
+    font-size: 1.1rem;
+    color: #a0a0a0;
+    margin-top: 12px;
+    font-weight: 600;
+  }
+
+  /* Stat grid */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .stat-card {
+    background: #0c0c0c;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 24px 20px;
+  }
+
+  .stat-value {
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: #ffffff;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .stat-unit {
+    font-size: 1rem;
+    font-weight: 500;
+    color: #5a5a5a;
+  }
+
+  .stat-name {
+    font-size: 0.78rem;
+    color: #5a5a5a;
+    margin-top: 6px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* Progress bar */
+  .progress-card {
+    background: #0c0c0c;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 24px 20px;
+    margin-bottom: 16px;
+  }
+
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 14px;
+  }
+
+  .progress-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #a0a0a0;
+  }
+
+  .progress-pct {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.02em;
+  }
+
+  .progress-bar-bg {
+    width: 100%;
+    height: 8px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 100px;
+    overflow: hidden;
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: #ffffff;
+    border-radius: 100px;
+    transition: width 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .progress-sub {
+    font-size: 0.75rem;
+    color: #3a3a3a;
+    margin-top: 10px;
+    text-align: right;
+  }
+
+  /* Motivational message */
+  .message-card {
+    background: #0c0c0c;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 24px 20px;
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  .message-emoji {
+    font-size: 1.8rem;
+    margin-bottom: 10px;
+  }
+
+  .message-text {
+    font-size: 0.92rem;
+    color: #a0a0a0;
+    line-height: 1.6;
+  }
+
+  .message-text strong {
+    color: #f0f0f0;
+  }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+  }
+
+  .footer a {
+    display: inline-block;
+    color: #050505;
+    background: #f0f0f0;
+    padding: 13px 28px;
+    border-radius: 100px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.3s, box-shadow 0.3s;
+    margin-bottom: 16px;
+  }
+
+  .footer a:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(255,255,255,0.1);
+  }
+
+  .footer p {
+    font-size: 0.72rem;
+    color: #3a3a3a;
+  }
+
+  /* Animate in */
+  .fade-in {
+    opacity: 0;
+    transform: translateY(16px);
+    animation: fadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .fade-in:nth-child(1) { animation-delay: 0.1s; }
+  .fade-in:nth-child(2) { animation-delay: 0.2s; }
+  .fade-in:nth-child(3) { animation-delay: 0.3s; }
+  .fade-in:nth-child(4) { animation-delay: 0.4s; }
+  .fade-in:nth-child(5) { animation-delay: 0.5s; }
+  .fade-in:nth-child(6) { animation-delay: 0.6s; }
+  .fade-in:nth-child(7) { animation-delay: 0.7s; }
+
+  @keyframes fadeIn {
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Count-up animation */
+  .count-up {
+    font-variant-numeric: tabular-nums;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header fade-in">
+    <div class="logo"><span class="logo-dot"></span> LifeSync</div>
+    <h1>Your ${year} Stats</h1>
+    <p>Keep showing up. Every dot counts.</p>
+  </div>
+
+  <div class="hero-stat fade-in">
+    <div class="hero-number count-up" data-target="${days}">${days}</div>
+    <div class="hero-label">Days Crushed</div>
+    <div class="hero-sub">${pct}% of ${year} so far</div>
+  </div>
+
+  <div class="stat-grid fade-in">
+    <div class="stat-card">
+      <div class="stat-value count-up" data-target="${streak}">${streak}</div>
+      <div class="stat-name">Current Streak</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value count-up" data-target="${best}">${best}</div>
+      <div class="stat-name">Best Streak</div>
+    </div>
+  </div>
+
+  <div class="stat-grid fade-in">
+    <div class="stat-card">
+      <div class="stat-value count-up" data-target="${month}">${month}</div>
+      <div class="stat-name">${currentMonth}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value"><span class="count-up" data-target="${pct}">${pct}</span><span class="stat-unit">%</span></div>
+      <div class="stat-name">Consistency</div>
+    </div>
+  </div>
+
+  <div class="progress-card fade-in">
+    <div class="progress-header">
+      <span class="progress-title">Year Progress</span>
+      <span class="progress-pct">${days} / 365</span>
+    </div>
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" style="width: 0%" id="progressBar"></div>
+    </div>
+    <div class="progress-sub">${365 - days} days remaining</div>
+  </div>
+
+  <div class="message-card fade-in">
+    <div class="message-emoji">${streak >= 7 ? '&#128293;' : streak >= 3 ? '&#9889;' : days > 0 ? '&#128170;' : '&#127793;'}</div>
+    <div class="message-text">${
+      streak >= 30 ? '<strong>' + streak + '-day streak!</strong> You are absolutely unstoppable.' :
+      streak >= 14 ? '<strong>' + streak + ' days strong.</strong> Two weeks of consistency. That\'s rare.' :
+      streak >= 7 ? '<strong>' + streak + '-day streak!</strong> A full week. Most people never get here.' :
+      streak >= 3 ? '<strong>' + streak + ' days in a row.</strong> Momentum is building.' :
+      days > 0 ? '<strong>You\'ve shown up ' + days + ' times.</strong> That\'s ' + days + ' times you chose growth.' :
+      'Your journey starts with a single dot. <strong>Make today count.</strong>'
+    }</div>
+  </div>
+
+  <div class="footer fade-in">
+    <a href="https://lifesyncdots.com">Visit LifeSync</a>
+    <p>Data stays on your device. This page reads from your shortcut only.</p>
+  </div>
+</div>
+
+<script>
+// Animate progress bar
+setTimeout(function() {
+  document.getElementById('progressBar').style.width = '${Math.min(pct, 100)}%';
+}, 600);
+
+// Count-up animation
+document.querySelectorAll('.count-up').forEach(function(el) {
+  var target = parseInt(el.dataset.target) || 0;
+  if (target === 0) return;
+  var duration = 1200;
+  var start = performance.now();
+  el.textContent = '0';
+  function update(now) {
+    var elapsed = now - start;
+    var progress = Math.min(elapsed / duration, 1);
+    var eased = 1 - Math.pow(1 - progress, 3);
+    el.textContent = Math.round(target * eased);
+    if (progress < 1) requestAnimationFrame(update);
+  }
+  setTimeout(function() { requestAnimationFrame(update); }, 400);
+});
+</script>
+</body>
+</html>`);
 });
 
 app.get('/', function(req, res) { res.send('LifeSync Goal Server is running'); });
