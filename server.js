@@ -579,7 +579,7 @@ app.get('/stats', function(req, res) {
   <div class="stat-grid fade-in">
     <div class="stat-card">
       <div class="stat-value count-up" data-target="${month}">${month}</div>
-      <div class="stat-name">${currentMonth}</div>
+      <div class="stat-name">This Month</div>
     </div>
     <div class="stat-card">
       <div class="stat-value"><span class="count-up" data-target="${pct}">${pct}</span><span class="stat-unit">%</span></div>
