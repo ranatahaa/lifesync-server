@@ -250,7 +250,9 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
     var b64   = img.toString('base64');
 
     var stats = calcStats(achievedDates);
-    var statsLink = 'https://lifesync-server-production.up.railway.app/stats?days=' + stats.total + '&streak=' + stats.streak + '&best=' + stats.best + '&pct=' + stats.pct + '&month=' + stats.monthDays + '&year=' + stats.year;
+    var now2 = new Date();
+    var daysLeftInYear = Math.ceil((new Date(now2.getFullYear(), 11, 31) - now2) / 86400000);
+    var statsLink = 'https://lifesync-server-production.up.railway.app/stats?days=' + stats.total + '&streak=' + stats.streak + '&best=' + stats.best + '&pct=' + stats.pct + '&month=' + stats.monthDays + '&year=' + stats.year + '&left=' + daysLeftInYear;
 
     res.setHeader('Content-Type', 'text/plain');
     res.send('status=success\nmessage=' + stats.total + ' days achieved (' + stats.pct + '%). Keep it up!\nlink=' + statsLink + '\nlink_text=View my stats\nimage_base64=' + b64);
@@ -274,6 +276,7 @@ app.get('/stats', function(req, res) {
   var pct = parseInt(req.query.pct) || 0;
   var month = parseInt(req.query.month) || 0;
   var year = parseInt(req.query.year) || new Date().getFullYear();
+  var daysLeft = parseInt(req.query.left) || Math.ceil((new Date(new Date().getFullYear(), 11, 31) - new Date()) / 86400000);
 
   var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   var currentMonth = monthNames[new Date().getMonth()];
@@ -595,7 +598,7 @@ app.get('/stats', function(req, res) {
     <div class="progress-bar-bg">
       <div class="progress-bar-fill" style="width: 0%" id="progressBar"></div>
     </div>
-    <div class="progress-sub">${365 - days} days remaining</div>
+    <div class="progress-sub">${daysLeft} days left in ${year}</div>
   </div>
 
   <div class="message-card fade-in">
