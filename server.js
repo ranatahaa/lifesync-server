@@ -471,7 +471,7 @@ app.get('/stats', function(req, res) {
 
   .progress-sub {
     font-size: 0.75rem;
-    color: #3a3a3a;
+    color: #777777;
     margin-top: 10px;
     text-align: right;
   }
@@ -526,7 +526,7 @@ app.get('/stats', function(req, res) {
 
   .footer p {
     font-size: 0.72rem;
-    color: #3a3a3a;
+    color: #777777;
   }
 
   /* Animate in */
