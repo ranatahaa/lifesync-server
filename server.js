@@ -313,11 +313,10 @@ app.get('/stats', function(req, res) {
   }
 
   .logo {
-    font-size: 0.72rem;
-    font-weight: 600;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    color: #5a5a5a;
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: #f0f0f0;
     margin-bottom: 20px;
     display: flex;
     align-items: center;
@@ -326,16 +325,17 @@ app.get('/stats', function(req, res) {
   }
 
   .logo-dot {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
     background: #f0f0f0;
-    animation: pulse 2s ease-in-out infinite;
+    display: inline-block;
+    animation: logo-pulse 2s ease-in-out infinite;
   }
 
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+  @keyframes logo-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
   }
 
   .header h1 {
