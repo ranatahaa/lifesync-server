@@ -320,7 +320,7 @@ app.get('/stats', function(req, res) {
     margin-bottom: 20px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 8px;
   }
 
@@ -395,14 +395,14 @@ app.get('/stats', function(req, res) {
   }
 
   .stat-card {
-    background: #0c0c0c;
-    border: 1px solid rgba(255,255,255,0.06);
+    background: #111111;
+    border: 1px solid rgba(255,255,255,0.1);
     border-radius: 16px;
-    padding: 24px 20px;
+    padding: 28px 22px;
   }
 
   .stat-value {
-    font-size: 2rem;
+    font-size: 2.4rem;
     font-weight: 800;
     letter-spacing: -0.03em;
     color: #ffffff;
@@ -413,14 +413,14 @@ app.get('/stats', function(req, res) {
   .stat-unit {
     font-size: 1rem;
     font-weight: 500;
-    color: #5a5a5a;
+    color: #777777;
   }
 
   .stat-name {
-    font-size: 0.78rem;
-    color: #5a5a5a;
-    margin-top: 6px;
-    font-weight: 500;
+    font-size: 0.82rem;
+    color: #888888;
+    margin-top: 8px;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
