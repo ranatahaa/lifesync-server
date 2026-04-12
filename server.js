@@ -395,14 +395,14 @@ app.get('/stats', function(req, res) {
   }
 
   .stat-card {
-    background: #111111;
-    border: 1px solid rgba(255,255,255,0.1);
+    background: #0c0c0c;
+    border: 1px solid rgba(255,255,255,0.06);
     border-radius: 16px;
-    padding: 28px 22px;
+    padding: 24px 20px;
   }
 
   .stat-value {
-    font-size: 2.4rem;
+    font-size: 2rem;
     font-weight: 800;
     letter-spacing: -0.03em;
     color: #ffffff;
@@ -413,14 +413,14 @@ app.get('/stats', function(req, res) {
   .stat-unit {
     font-size: 1rem;
     font-weight: 500;
-    color: #777777;
+    color: #5a5a5a;
   }
 
   .stat-name {
-    font-size: 0.82rem;
-    color: #888888;
-    margin-top: 8px;
-    font-weight: 600;
+    font-size: 0.78rem;
+    color: #5a5a5a;
+    margin-top: 6px;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
