@@ -21,15 +21,17 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 var ADMIN_SECRET = 'rana_lifesync_2026';
 
 function getDeviceId(req) {
-  // Priority 1: uid query parameter (15-digit random number from phone)
-  var uid = (req.query.uid || '').toString().trim();
-  if (uid.match(/^\d{10,16}$/)) {
-    return 'u_' + crypto.createHash('md5').update(uid).digest('hex');
-  }
-
-  // Fallback: fingerprint from screen size
+  var userId = (req.headers['user-id'] || '').trim();
   var w = req.headers['screen-wi'] || req.headers['screen-width'] || '0';
   var h = req.headers['screen-hei'] || req.headers['screen-height'] || '0';
+
+  if (userId.length >= 8) {
+    // Hash device name + screen size (NO iOS version - stable across updates)
+    var combined = userId + ':' + w + ':' + h;
+    return 'u_' + crypto.createHash('md5').update(combined).digest('hex');
+  }
+
+  // Fallback fingerprint
   var ua = req.headers['user-agent'] || '';
   var raw = w + ':' + h + ':' + ua;
   return 'f_' + crypto.createHash('md5').update(raw).digest('hex').substring(0, 12);
@@ -178,7 +180,7 @@ app.all('/shortcuts/genpic.php', upload.any(), function(req, res) {
 
     fs.writeFileSync(path.join(DATA_DIR, 'debug.json'), JSON.stringify({
       W: W, H: H, date: dateStr, deviceId: deviceId,
-      uid: req.query.uid || 'none',
+      userIdHeader: req.headers['user-id'] || 'none',
       contentType: req.headers['content-type'] || 'none',
       bodyLength: body.length,
       serverDatesCount: serverDates.size,
